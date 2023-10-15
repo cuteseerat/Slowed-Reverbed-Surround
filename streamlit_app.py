@@ -1,38 +1,41 @@
-from collections import namedtuple
-import altair as alt
-import math
-import pandas as pd
-import streamlit as st
-
-"""
-# Welcome to Streamlit!
-
-Edit `/streamlit_app.py` to customize this app to your heart's desire :heart:
-
-If you have any questions, checkout our [documentation](https://docs.streamlit.io) and [community
-forums](https://discuss.streamlit.io).
-
-In the meantime, below is an example of what you can do with just a few lines of code:
-"""
+import subprocess as sp
+import soundfile as sf
+from pedalboard import Pedalboard, Reverb
+from math import trunc
+import numpy as np
 
 
-with st.echo(code_location='below'):
-    total_points = st.slider("Number of points in spiral", 1, 5000, 2000)
-    num_turns = st.slider("Number of turns in spiral", 1, 100, 9)
+def slowedreverb(audio, output, room_size = 0.75, damping = 0.5, wet_level = 0.08, dry_level = 0.2, delay = 2, slowfactor = 0.08):
 
-    Point = namedtuple('Point', 'x y')
-    data = []
+    if '.wav' not in audio:
+        print('Audio needs to be .wav! Converting...')
+        sp.call(f'ffmpeg -i "{audio}" tmp.wav', shell = True)
+        audio = 'tmp.wav'
+        
+    audio, sample_rate = sf.read(audio)
+    sample_rate -= trunc(sample_rate*slowfactor)
 
-    points_per_turn = total_points / num_turns
+    # Add reverb
+    board = Pedalboard([Reverb(
+        room_size=room_size,
+        damping=damping,
+        wet_level=wet_level,
+        dry_level=dry_level
+        )])
 
-    for curr_point_num in range(total_points):
-        curr_turn, i = divmod(curr_point_num, points_per_turn)
-        angle = (curr_turn + 1) * 2 * math.pi * i / points_per_turn
-        radius = curr_point_num / total_points
-        x = radius * math.cos(angle)
-        y = radius * math.sin(angle)
-        data.append(Point(x, y))
 
-    st.altair_chart(alt.Chart(pd.DataFrame(data), height=500, width=500)
-        .mark_circle(color='#0068c9', opacity=0.5)
-        .encode(x='x:Q', y='y:Q'))
+    # Add surround sound effects
+    effected = board(audio, sample_rate)
+    channel1 = effected[:, 0]
+    channel2 = effected[:, 1]
+    shift_len = delay*1000
+    shifted_channel1 = np.concatenate((np.zeros(shift_len), channel1[:-shift_len]))
+    combined_signal = np.hstack((shifted_channel1.reshape(-1, 1), channel2.reshape(-1, 1)))
+
+
+    #write outfile
+    sf.write(output, combined_signal, sample_rate)
+    print(f"Converted.")
+
+# if "__main__" == __name__:
+    # slowedreverb('kali.wav', 'test1.wav')
